@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MathQuest - Juego de Matemáticas Educativo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app"></div>
+
+
+    <script>
+
+        // Estado del juego
+        let state = {
+            gameStarted: false,
+            difficulty: 'easy',
+            operation: 'addition',
+            gameMode: 'practice',
+            currentQuestion: null,
+            userAnswer: '',
+            feedback: null,
+            score: 0,
+            streak: 0,
+            totalQuestions: 0,
+            correctAnswers: 0,
+            showExplanation: false,
+            timeLeft: 30,
+            isTimerActive: false,
+            achievements: [],
+            showStats: false
+        };
+
+        const difficulties = {
+            easy: { name: '🟢 Fácil', range: [1, 10], time: 45 },
+            medium: { name: '🟡 Medio', range: [10, 50], time: 30 },
+            hard: { name: '🔴 Difícil', range: [50, 100], time: 20 }
+        };
+
+        const operations = {
+            addition: { name: 'Suma', symbol: '+' },
+            subtraction: { name: 'Resta', symbol: '-' },
+            multiplication: { name: 'Multiplicación', symbol: '×' },
+            division: { name: 'División', symbol: '÷' }
+        };
+
+        const achievementsList = [
+            { id: 'first_correct', name: 'Primera Victoria', icon: '🎯' },
+            { id: 'streak_5', name: 'Racha de 5', icon: '🔥' },
+            { id: 'streak_10', name: 'Racha de 10', icon: '⚡' },
+            { id: 'master_10', name: 'Aprendiz', icon: '📚' },
+            { id: 'master_50', name: 'Experto', icon: '🎓' },
+            { id: 'perfect_score', name: 'Perfección', icon: '💯' }
+        ];
+
+        let timerInterval = null;
+
+        // Cargar progreso
+        function loadProgress() {
+            try {
+                const saved = localStorage.getItem('mathquest_progress');
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    state.score = data.score || 0;
+                    state.correctAnswers = data.correctAnswers || 0;
+                    state.totalQuestions = data.totalQuestions || 0;
+                    state.achievements = data.achievements || [];
+                }
+            } catch (e) {
+                console.log('No hay progreso guardado');
+            }
+        }
+
+        // Guardar progreso
+        function saveProgress() {
+            try {
+                const data = {
+                    score: state.score,
+                    correctAnswers: state.correctAnswers,
+                    totalQuestions: state.totalQuestions,
+                    achievements: state.achievements
+                };
+                localStorage.setItem('mathquest_progress', JSON.stringify(data));
+            } catch (e) {
+                console.error('Error al guardar:', e);
+            }
+        }
+
+        // Generar pregunta
+        function generateQuestion() {
+            const range = difficulties[state.difficulty].range;
+            let num1 = Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0];
+            let num2 = Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0];
+            let answer, explanation, steps;
+
+            switch (state.operation) {
+                case 'addition':
+                    answer = num1 + num2;
+                    explanation = `Para sumar ${num1} + ${num2}, contamos desde ${num1} hacia adelante ${num2} veces.`;
+                    steps = [
+                        `Empezamos con ${num1}`,
+                        `Le sumamos ${num2}`,
+                        `${num1} + ${num2} = ${answer}`
+                    ];
+                    break;
+
+                case 'subtraction':
+                    if (num1 < num2) [num1, num2] = [num2, num1];
+                    answer = num1 - num2;
+                    explanation = `Para restar ${num1} - ${num2}, quitamos ${num2} de ${num1}.`;
+                    steps = [
+                        `Empezamos con ${num1}`,
+                        `Le quitamos ${num2}`,
+                        `${num1} - ${num2} = ${answer}`
+                    ];
+                    break;
+
+                case 'multiplication':
+                    num1 = Math.floor(Math.random() * 12) + 1;
+                    num2 = Math.floor(Math.random() * 12) + 1;
+                    answer = num1 * num2;
+                    explanation = `${num1} × ${num2} es sumar ${num1} exactamente ${num2} veces.`;
+                    steps = [
+                        `${num1} × ${num2} = ${num1} sumado ${num2} veces`,
+                        `Ejemplo: ${Array(num2).fill(num1).join(' + ')}`,
+                        `Resultado: ${answer}`
+                    ];
+                    break;
+
+                case 'division':
+                    num2 = Math.floor(Math.random() * 10) + 1;
+                    answer = Math.floor(Math.random() * 10) + 1;
+                    num1 = num2 * answer;
+                    explanation = `${num1} ÷ ${num2} significa: ¿cuántas veces cabe ${num2} en ${num1}?`;
+                    steps = [
+                        `¿Cuántos grupos de ${num2} hay en ${num1}?`,
+                        `${num2} × ${answer} = ${num1}`,
+                        `Por tanto: ${num1} ÷ ${num2} = ${answer}`
+                    ];
+                    break;
+            }
+
+            state.currentQuestion = { num1, num2, answer, explanation, steps };
+            state.feedback = null;
+            state.showExplanation = false;
+            state.userAnswer = '';
+
+            if (state.gameMode === 'timed') {
+                state.timeLeft = difficulties[state.difficulty].time;
+                state.isTimerActive = true;
+                startTimer();
+            }
+        }
+
+        // Timer
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                state.timeLeft--;
+                render();
+                if (state.timeLeft <= 0) {
+                    handleTimeout();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            state.isTimerActive = false;
+        }
+
+        function handleTimeout() {
+            stopTimer();
+            state.streak = 0;
+            state.totalQuestions++;
+            state.feedback = {
+                correct: false,
+                message: '⏰ Se acabó el tiempo',
+                correctAnswer: state.currentQuestion.answer
+            };
+            state.showExplanation = true;
+            saveProgress();
+            render();
+        }
+
+        // Verificar respuesta
+        function checkAnswer() {
+            stopTimer();
+            const correct = parseInt(state.userAnswer) === state.currentQuestion.answer;
+            state.totalQuestions++;
+
+            if (correct) {
+                const points = state.gameMode === 'timed' ?
+                    Math.floor(10 * (1 + state.timeLeft / difficulties[state.difficulty].time)) : 10;
+
+                state.score += points;
+                state.correctAnswers++;
+                state.streak++;
+                state.feedback = {
+                    correct: true,
+                    message: '¡Excelente trabajo! 🎉',
+                    points: points
+                };
+                checkAchievements();
+            } else {
+                state.streak = 0;
+                state.feedback = {
+                    correct: false,
+                    message: 'No es correcto, pero sigue intentando 💪',
+                    correctAnswer: state.currentQuestion.answer
+                };
+            }
+
+            state.showExplanation = true;
+            saveProgress();
+            render();
+        }
+
+        // Logros
+        function checkAchievements() {
+            const achievements = [...state.achievements];
+
+            if (state.correctAnswers === 1 && !achievements.includes('first_correct')) {
+                achievements.push('first_correct');
+            }
+            if (state.streak === 5 && !achievements.includes('streak_5')) {
+                achievements.push('streak_5');
+            }
+            if (state.streak === 10 && !achievements.includes('streak_10')) {
+                achievements.push('streak_10');
+            }
+            if (state.correctAnswers === 10 && !achievements.includes('master_10')) {
+                achievements.push('master_10');
+            }
+            if (state.correctAnswers === 50 && !achievements.includes('master_50')) {
+                achievements.push('master_50');
+            }
+            if (state.totalQuestions >= 10 && state.correctAnswers === state.totalQuestions && !achievements.includes('perfect_score')) {
+                achievements.push('perfect_score');
+            }
+
+            state.achievements = achievements;
+        }
+
+        // Renderizar
+        function render() {
+            const app = document.getElementById('app');
+
+            if (!state.gameStarted) {
+                app.innerHTML = renderMenu();
+            } else {
+                app.innerHTML = renderGame();
+            }
+
+            attachEventListeners();
+        }
+
+        function renderMenu() {
+            const accuracy = state.totalQuestions > 0 ?
+                Math.round((state.correctAnswers / state.totalQuestions) * 100) : 0;
+
+            return `
+               <div class="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full p-8">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
+                <span class="text-4xl">🧠</span>
+            </div>
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">MathQuest</h1>
+            <p class="text-gray-600">Aprende matemáticas jugando</p>
+
+            <div class="flex justify-center gap-4 mt-6">
+                <div class="px-4 py-2 rounded-lg bg-blue-100">
+                    <div class="flex items-center gap-2">
+                        <span>🏆</span>
+                        <span class="font-bold">${state.score}</span>
+                    </div>
+                </div>
+                <div class="px-4 py-2 rounded-lg bg-green-100">
+                    <div class="flex items-center gap-2">
+                        <span>🎯</span>
+                        <span class="font-bold">${state.correctAnswers}/${state.totalQuestions}</span>
+                    </div>
+                </div>
+                <div class="px-4 py-2 rounded-lg bg-purple-100">
+                    <div class="flex items-center gap-2">
+                        <span>📊</span>
+                        <span class="font-bold">${accuracy}%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+                        <div class="space-y-6">
+                            <!-- Modo de Juego -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-3">Modo de Juego</label>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button onclick="setGameMode('practice')" 
+                                        class="p-4 rounded-xl border-2 transition-all ${state.gameMode === 'practice' ? 'border-blue-500 bg-blue-50 shadow-md' : 'border-gray-200 hover:border-blue-300'}">
+                                        <div class="text-3xl mb-2">📚</div>
+                                        <div class="font-medium">Práctica</div>
+                                        <div class="text-xs text-gray-600">Sin límite de tiempo</div>
+                                    </button>
+                                    <button onclick="setGameMode('timed')" 
+                                        class="p-4 rounded-xl border-2 transition-all ${state.gameMode === 'timed' ? 'border-purple-500 bg-purple-50 shadow-md' : 'border-gray-200 hover:border-purple-300'}">
+                                        <div class="text-3xl mb-2">⚡</div>
+                                        <div class="font-medium">Cronometrado</div>
+                                        <div class="text-xs text-gray-600">Contra reloj</div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Dificultad -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-3">Dificultad</label>
+                                <div class="grid grid-cols-3 gap-3">
+                                    ${Object.keys(difficulties).map(key => `
+                                        <button onclick="setDifficulty('${key}')" 
+                                            class="p-4 rounded-xl border-2 transition-all ${state.difficulty === key ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-200 hover:border-green-300'}">
+                                            <div class="font-medium text-sm">${difficulties[key].name}</div>
+                                            <div class="text-xs text-gray-600 mt-1">${difficulties[key].range[0]}-${difficulties[key].range[1]}</div>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <!-- Operación -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-3">Operación</label>
+                                <div class="grid grid-cols-2 gap-3">
+                                    ${Object.keys(operations).map(key => `
+                                        <button onclick="setOperation('${key}')" 
+                                            class="p-4 rounded-xl border-2 transition-all ${state.operation === key ? 'border-purple-500 bg-purple-50 shadow-md' : 'border-gray-200 hover:border-purple-300'}">
+                                            <div class="text-3xl mb-2">${operations[key].symbol === '+' ? '➕' : operations[key].symbol === '-' ? '➖' : operations[key].symbol === '×' ? '✖️' : '➗'}</div>
+                                            <div class="font-medium">${operations[key].name}</div>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <button onclick="startGame()" 
+                                class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg transition-all">
+                                ▶️ Comenzar Juego
+                            </button>
+                            <!-- 🔥 BOTÓN PARA REGRESAR A CAMUS.HTML -->
+<div class="mt-4">
+    <button onclick="window.location.href='/index.html'"
+        class="w-full bg-gradient-to-r from-green-500 to-blue-500 text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg transition-all">
+        ⬅️ Regresar a Inicio
+    </button>
+</div>
+
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderGame() {
+            if (!state.currentQuestion) return '';
+
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4">
+                    <!-- Header -->
+                    <div class="max-w-4xl mx-auto mb-6">
+                        <div class="bg-white rounded-2xl shadow-lg p-4">
+                            <div class="flex items-center justify-between flex-wrap gap-4">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-center gap-2">
+                                        <span>🏆</span>
+                                        <span class="font-bold text-xl">${state.score}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span>⚡</span>
+                                        <span class="font-bold text-xl">${state.streak}</span>
+                                    </div>
+                                    <div class="text-sm text-gray-600">${state.correctAnswers}/${state.totalQuestions}</div>
+                                </div>
+                                
+                                ${state.gameMode === 'timed' && state.isTimerActive ? `
+                                    <div class="text-2xl font-bold ${state.timeLeft <= 10 ? 'text-red-500 pulse' : 'text-blue-500'}">
+                                        ⏱️ ${state.timeLeft}s
+                                    </div>
+                                ` : ''}
+                                
+                                <button onclick="resetGame()" 
+    class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all">
+    🔄 Volver
+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pregunta -->
+                    <div class="max-w-4xl mx-auto">
+                        <div class="bg-white rounded-2xl shadow-2xl p-8 md:p-12">
+                            <div class="text-center mb-8">
+                                <div class="inline-block bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-2 rounded-full text-sm font-semibold mb-6">
+                                    ${operations[state.operation].name} • ${difficulties[state.difficulty].name}
+                                </div>
+                                
+                                <div class="text-6xl md:text-8xl font-bold text-gray-800 mb-8">
+                                    ${state.currentQuestion.num1} 
+                                    <span class="text-purple-500">${operations[state.operation].symbol}</span> 
+                                    ${state.currentQuestion.num2} 
+                                    <span class="text-blue-500">=</span> 
+                                    <span class="text-gray-300">?</span>
+                                </div>
+
+                                ${!state.feedback ? `
+                                    <div class="max-w-md mx-auto">
+                                        <input type="number" id="answerInput" value="${state.userAnswer}"
+                                            placeholder="Tu respuesta"
+                                            class="w-full text-4xl text-center p-4 border-4 border-gray-200 rounded-2xl focus:outline-none focus:border-blue-500 transition-all mb-4"
+                                            onkeypress="if(event.key==='Enter') checkAnswer()">
+                                        <button onclick="checkAnswer()" ${!state.userAnswer ? 'disabled' : ''}
+                                            class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-4 rounded-xl font-semibold text-xl hover:shadow-lg transition-all disabled:opacity-50">
+                                            Verificar Respuesta
+                                        </button>
+                                    </div>
+                                ` : `
+                                    <div class="max-w-md mx-auto p-6 rounded-2xl ${state.feedback.correct ? 'bg-green-50 border-4 border-green-500' : 'bg-red-50 border-4 border-red-500'}">
+                                        <div class="text-4xl mb-2">${state.feedback.correct ? '🎉' : '💡'}</div>
+                                        <div class="text-2xl font-bold mb-2 ${state.feedback.correct ? 'text-green-700' : 'text-red-700'}">
+                                            ${state.feedback.message}
+                                        </div>
+                                        ${state.feedback.correct ? `
+                                            <div class="text-lg text-green-600">+${state.feedback.points} puntos</div>
+                                        ` : `
+                                            <div class="text-xl text-red-600 mt-2">
+                                                La respuesta correcta es: <span class="font-bold">${state.feedback.correctAnswer}</span>
+                                            </div>
+                                        `}
+                                    </div>
+                                `}
+                            </div>
+
+                            ${state.showExplanation ? `
+                                <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 mb-6">
+                                    <h3 class="text-xl font-bold text-blue-800 mb-4">📖 Explicación Paso a Paso</h3>
+                                    <p class="text-gray-700 mb-4">${state.currentQuestion.explanation}</p>
+                                    <div class="space-y-2">
+                                        ${state.currentQuestion.steps.map((step, idx) => `
+                                            <div class="flex items-start gap-3">
+                                                <div class="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                                                    ${idx + 1}
+                                                </div>
+                                                <div class="text-gray-700">${step}</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <button onclick="nextQuestion()" 
+                                    class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-4 rounded-xl font-semibold text-xl hover:shadow-lg transition-all">
+                                    Siguiente Pregunta ⭐
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function attachEventListeners() {
+            const input = document.getElementById('answerInput');
+            if (input) {
+                input.focus();
+                input.addEventListener('input', (e) => {
+                    state.userAnswer = e.target.value;
+                    render();
+                });
+            }
+        }
+
+        // Funciones globales
+        window.setGameMode = (mode) => { state.gameMode = mode; render(); };
+        window.setDifficulty = (diff) => { state.difficulty = diff; render(); };
+        window.setOperation = (op) => { state.operation = op; render(); };
+        window.startGame = () => { state.gameStarted = true; generateQuestion(); render(); };
+        window.resetGame = () => { stopTimer(); state.gameStarted = false; render(); };
+        window.checkAnswer = checkAnswer;
+        window.nextQuestion = () => { generateQuestion(); render(); };
+
+        // Iniciar
+        loadProgress();
+        render();
+    </script>
+</body>
+
+</html>
